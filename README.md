@@ -15,6 +15,7 @@ Copyright (c) 2012 Damien Elmes (https://ankiweb.net/shared/info/2179254157)
 Some addons such as the progress_bar may prevent rescaling of the dialogs.  
 
 NightMode needs to be modified to be compatible.  
+https://github.com/lovac42/Anki-Night-Mode/blob/lovac42-patch-runHook/Night_Mode.py
 
 Resize issue on 2.1.  
 Solution: toggle on, rescale bottom docks, toggle off.  

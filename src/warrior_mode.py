@@ -473,7 +473,7 @@ class WarriorMode:
         mw.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
         if mw.width() < 600: mw.resize(QSize(600, mw.height()))
 
-        act=QAction("Toogle Warrior Mode", mw)
+        act=QAction("Toggle Warrior Mode", mw)
         act.setCheckable(True)
         act.setShortcut(QKeySequence(HOTKEY))
         act.triggered.connect(self.toggle)
