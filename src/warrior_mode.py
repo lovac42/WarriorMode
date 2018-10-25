@@ -2,7 +2,7 @@
 # Copyright: (C) 2018 Lovac42
 # Support: https://github.com/lovac42/WarriorMode
 # License: GNU GPL, version 3 or later; http://www.gnu.org/copyleft/gpl.html
-# Version: 0.0.2
+# Version: 0.0.3
 
 # Other Authors:
 # Copyright (c) 2018 ijgnd (https://ankiweb.net/shared/info/673114053)
@@ -89,6 +89,7 @@ if not ANKI21:
 
 
 freezeMode=False #Pause current card updates
+night_mode_state=False
 
 
 class DockableWithClose(QDockWidget):
@@ -476,10 +477,9 @@ please see the browser documentation.""")
 
     def _style(self):
         #CHECK NIGHT MODE
-        if mw.pm.profile.get('nm_state_on', False):
+        if night_mode_state:
             txtColor='aqua'
-            # txtColor=mw.pm.profile.get('nm_color_t', 'aqua')
-            bgColor=mw.pm.profile.get('nm_color_b', '#272828')
+            bgColor='#272828'
         else:
             txtColor="#333"
             bgColor="#dedede"
@@ -550,11 +550,6 @@ class WarriorMode:
         addHook('unloadProfile', self.onUnloadProfile)
         addHook("night_mode_state_changed", self.refresh)
 
-    def onUnloadProfile(self):
-        if self.state:
-            self.on(); #fix saving positions
-            mw.pm.profile[self.key+"State"]=self.state
-            mw.pm.profile[self.key+"Geom"]=self.geometry
 
     def onProfileLoaded(self):
         if mw.pm.profile.get(self.key+"State"):
@@ -564,7 +559,21 @@ class WarriorMode:
             self.geometry=mw.pm.profile[self.key+"Geom"]
             mw.restoreGeometry(self.geometry)
 
-    def freezeUpdates(self): #to compare changes
+
+    def onUnloadProfile(self):
+        if self.state:
+            self.on(); #fix saving positions
+            mw.pm.profile[self.key+"State"]=self.state
+            mw.pm.profile[self.key+"Geom"]=self.geometry
+
+
+    def refresh(self, state):
+        global night_mode_state
+        night_mode_state=state
+        for d in self.docks:
+            d._update()
+
+    def freezeUpdates(self): #to compare b4/after changes
         global freezeMode
         if freezeMode:
             freezeMode=False
@@ -578,10 +587,6 @@ class WarriorMode:
             d.killed=False
             d.hide()
             d.show()
-
-    def refresh(self):
-        for d in self.docks:
-            d._update()
 
     def toggle(self):
         if not self.docks: self.setup()
@@ -621,14 +626,12 @@ class WarriorMode:
         self.docks.append(d)
         self.on()
 
-
     def setup(self):
         #1-9, Negative = whole collection, pos = per deck
         d = StatsSidebar(2, "Forecast Chart (Deck)")
         self.docks.append(d)
         d = StatsSidebar(-1, "Todays Stats (Collection)")
         self.docks.append(d)
-
 
         #11-19, Neg = lastCard, leftDock; pos = currentCard, rightDock
         d = StatsSidebar(11, "Current Card Info")
