@@ -2,7 +2,7 @@
 # Copyright: (C) 2018 Lovac42
 # Support: https://github.com/lovac42/WarriorMode
 # License: GNU GPL, version 3 or later; http://www.gnu.org/copyleft/gpl.html
-# Version: 0.0.1
+# Version: 0.0.2
 
 # Other Authors:
 # Copyright (c) 2018 ijgnd (https://ankiweb.net/shared/info/673114053)
@@ -15,6 +15,12 @@
 ###   THIS  IS  AN  ALPHA  RELEASE   ###
 ###     Please check for updates     ###
 ########################################
+
+
+
+#Todo include sibling info
+
+
 
 from __future__ import division
 
@@ -82,18 +88,50 @@ if not ANKI21:
     QWebEngineView=QWebView
 
 
+freezeMode=False #Pause current card updates
+
+
 class DockableWithClose(QDockWidget):
     closed = pyqtSignal()
     def closeEvent(self, evt):
         self.closed.emit()
         QDockWidget.closeEvent(self, evt)
+    def __init__(self,t,m):
+        QDockWidget.__init__(self,t,m)
+        self.setStyleSheet("""
+ *{
+     selection-background-color: yellow;
+ }
+ QDockWidget {
+     border: 0px solid darkgray;
+     text-align: left;
+     background: darkgray;
+     padding-left: 5px;
+ }
+ QDockWidget::title {
+     text-align: left;
+     background: darkgray;
+     padding-left: 5px;
+ }
+ QDockWidget::close-button, QDockWidget::float-button {
+     border: 1px solid transparent;
+     background: darkgray;
+     padding: 0px;
+ }
+ QDockWidget::close-button:hover, QDockWidget::float-button:hover {
+     background: gray;
+ }
+ QDockWidget::close-button:pressed, QDockWidget::float-button:pressed {
+     padding: 1px -1px -1px 1px;
+ }
+""")
 
 
 
-class StatsSidebar(object):
+class StatsSidebar():
+    killed=False
     dock = None
     web = None
-
 
     def __init__(self, type, title):
         self.type = type
@@ -101,7 +139,6 @@ class StatsSidebar(object):
         addHook('unloadProfile', self.hide)
         addHook("showQuestion", self._update)
         addHook('afterStateChange', self.onAfterStateChange)
-        addHook("night_mode_state_changed", self._update)
 
     def onAfterStateChange(self, newS, oldS, *args):
         if newS != 'review': self._update()
@@ -123,18 +160,22 @@ class StatsSidebar(object):
 
     def _onClosed(self):
         # schedule removal for after evt has finished
-        mw.progress.timer(100, self.hide, False)
+        QTimer.singleShot(100, self.hide)
+        self.killed=True
 
     def show(self):
         if not self.dock:
             self._addDockable()
-            self._update()
+        elif not self.killed:
+            self.dock.show()
+        QTimer.singleShot(10, self._update)
 
     def hide(self):
         if self.dock:
-            mw.removeDockWidget(self.dock)
-            self.dock = None
-            self.web = None
+            self.dock.hide()
+
+
+
 
 
     #copy and paste from Browser
@@ -272,7 +313,8 @@ please see the browser documentation.""")
 
 
     def _update(self):
-        if not self.dock: return
+        if not self.dock or not self.dock.isVisible(): return
+        if freezeMode and self.type>10: return
 
         card = mw.reviewer.card
         txt = _("No Current Card")
@@ -284,7 +326,9 @@ please see the browser documentation.""")
         cs = CollectionStats(mw.col)
         cs.wholeCollection=True if self.type<0 else False
 
-        if abs(self.type)==1: #todayStats
+        if self.type==0: #review count
+            txt = "<center>%s</center>" % mw.reviewer._remaining() if mw.state=="review" else '? + ? + ?'
+        elif abs(self.type)==1: #todayStats
             txt = "<center>%s</center>" % cs.todayStats()
         elif abs(self.type)==2: #forecast chart
             if not card or card.odid: #no filtered decks
@@ -318,13 +362,15 @@ please see the browser documentation.""")
                 txt +=  cs.report()
 
                 did = card.odid if card.odid else card.did
+                fdid = card.did if card.odid else 0
                 deckName = mw.col.decks.get(did)['name'] #in case of filtered decks
                 tags=mw.col.getNote(card.nid).stringTags()
                 txt += """<table width="100%%"><tr>
 <td><b>Deck ID:</b></td> <td>%d</td></tr><tr>
+<td><b>Fil DID:</b></td> <td>%d</td></tr><tr>
 <td><b>oDeck:</b></td> <td>%s</td></tr><tr>
 <td><b>Tags:</b></td> <td>%s</td>
-</tr></table>""" % (did, deckName, tags)
+</tr></table>""" % (did, fdid, deckName, tags)
 
         style = self._style()
         self.web.setHtml("""
@@ -457,7 +503,13 @@ please see the browser documentation.""")
 
 
 class WarriorMode:
+    key="WarriorMode"
+    geometry = None
+    state = None
+    dualMon=False
+    # shown = False
     docks = []
+
 
     def __init__(self):
         menu=None
@@ -473,40 +525,112 @@ class WarriorMode:
         mw.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
         if mw.width() < 600: mw.resize(QSize(600, mw.height()))
 
-        act=QAction("Toggle Warrior Mode", mw)
+        act=QAction("WM: Reset Workspace", mw)
+        act.triggered.connect(self.reset)
+        menu.addAction(act)
+
+        act=QAction("WM: Dual Monitors", mw)
+        act.setCheckable(True)
+        act.triggered.connect(self.dualMonSetup)
+        menu.addAction(act)
+
+        act=QAction("WM: Freeze CCard View", mw)
+        act.setCheckable(True)
+        act.triggered.connect(self.freezeUpdates)
+        menu.addAction(act)
+
+        act=QAction("Warrior Mode", mw)
         act.setCheckable(True)
         act.setShortcut(QKeySequence(HOTKEY))
         act.triggered.connect(self.toggle)
         menu.addAction(act)
+        self.action=act
 
-        addHook('profileLoaded', self.setup)
+        addHook('profileLoaded', self.onProfileLoaded)
+        addHook('unloadProfile', self.onUnloadProfile)
+        addHook("night_mode_state_changed", self.refresh)
 
+    def onUnloadProfile(self):
+        if self.state:
+            self.on(); #fix saving positions
+            mw.pm.profile[self.key+"State"]=self.state
+            mw.pm.profile[self.key+"Geom"]=self.geometry
+
+    def onProfileLoaded(self):
+        if mw.pm.profile.get(self.key+"State"):
+            self.state=mw.pm.profile[self.key+"State"]
+            mw.restoreState(self.state)
+        if mw.pm.profile.get(self.key+"Geom"):
+            self.geometry=mw.pm.profile[self.key+"Geom"]
+            mw.restoreGeometry(self.geometry)
+
+    def freezeUpdates(self): #to compare changes
+        global freezeMode
+        if freezeMode:
+            freezeMode=False
+            for d in self.docks: d._update()
+        else: freezeMode=True
+
+    def reset(self):
+        self.state=self.geometry=None
+        self.action.setChecked(True)
+        for d in self.docks:
+            d.killed=False
+            d.hide()
+            d.show()
+
+    def refresh(self):
+        for d in self.docks:
+            d._update()
 
     def toggle(self):
-        shown=False
-        for d in self.docks:
-            if d.dock: shown=True; break;
+        if not self.docks: self.setup()
 
-        if shown:
-            for d in self.docks: d.hide()
+        shown=False; allKilled=True
+        for d in self.docks:
+            if d.dock and d.dock.isVisible(): shown=True; break;
+            if not d.killed: allKilled=False;
+
+        if shown: #OFF
+            self.off()
+        elif allKilled:
+            self.reset()
         else:
-            for d in self.docks: d.show()
+            self.on()
+
+    def off(self):
+        self.state=mw.saveState()
+        self.geometry=mw.saveGeometry()
+        for d in self.docks: d.hide()
+
+    def on(self):
+        for d in self.docks: d.show()
+        if self.state: mw.restoreState(self.state)
+        if self.geometry: mw.restoreGeometry(self.geometry)
+
+    def dualMonSetup(self):
+        if self.dualMon: return
+        self.dualMon=True
+        if not self.docks: self.setup()
+
+        d = StatsSidebar(0, "Remaining Reviews (Deck)")
+        self.docks.append(d)
+        d = StatsSidebar(1, "Todays Stats (Deck)")
+        self.docks.append(d)
+        d = StatsSidebar(-2, "Forecast Chart (Collection)")
+        self.docks.append(d)
+        self.on()
 
 
     def setup(self):
-        #Negative = whole collection, pos = per deck
+        #1-9, Negative = whole collection, pos = per deck
         d = StatsSidebar(2, "Forecast Chart (Deck)")
         self.docks.append(d)
-        # d = StatsSidebar(-2, "Forecast Chart (Collection)")
-        # self.docks.append(d)
-
-        # d = StatsSidebar(1, "Todays Stats (Deck)")
-        # self.docks.append(d)
         d = StatsSidebar(-1, "Todays Stats (Collection)")
         self.docks.append(d)
 
 
-        #Neg = lastCard, leftDock; pos = currentCard, rightDock
+        #11-19, Neg = lastCard, leftDock; pos = currentCard, rightDock
         d = StatsSidebar(11, "Current Card Info")
         self.docks.append(d)
         d = StatsSidebar(12, "Current Card History")
@@ -517,10 +641,16 @@ class WarriorMode:
         d = StatsSidebar(-12, "Previous Card History")
         self.docks.append(d)
 
-        #ADD CUSTOM DOCKS BELOW (modify customView)
-        ##################################
+        # #ADD CUSTOM DOCKS BELOW (modify customView)
+        # #use 90-99
+        # ##################################
         # d = StatsSidebar(-91, "Card Q")
         # self.docks.append(d)
 
+        # # if not self.dualMon: return
+        # # More Custom Cr... Stuff Below
+
+        # d = StatsSidebar(91, "Card A")
+        # self.docks.append(d)
 
 ws=WarriorMode()
