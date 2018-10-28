@@ -1,4 +1,4 @@
-# WarriorMode (Alpha Version)
+# WarriorMode (Alpha Version 2)
 Anki Addon: Stats &amp; Debug
 
 This addon is designed to show stats during review. It is guaranteed to make Anki as ugly looking as (that program). Now Anki users too, could experience that unique eye gouging sensation. But in all honesty, this is meant for debugging patterns or bad habbits a user may have developed during the course of his/her study.
@@ -17,7 +17,7 @@ Some addons such as the progress_bar may prevent rescaling of the dialogs.
 NightMode needs to be modified to be compatible.  
 https://github.com/lovac42/Anki-Night-Mode/blob/lovac42-patch-runHook/Night_Mode.py
 
-Resize issue on 2.1.  
+Resize issue on 2.1.x (not on/after 2.1.5)
 Solution: toggle on, rescale bottom docks, toggle off.  
 
 
