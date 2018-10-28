@@ -2,7 +2,7 @@
 # Copyright: (C) 2018 Lovac42
 # Support: https://github.com/lovac42/WarriorMode
 # License: GNU GPL, version 3 or later; http://www.gnu.org/copyleft/gpl.html
-# Version: 0.0.3
+# Version: 0.0.4
 
 # Other Authors:
 # Copyright (c) 2018 ijgnd (https://ankiweb.net/shared/info/673114053)
@@ -18,8 +18,8 @@
 
 
 
-#Todo include sibling info
-
+#TODO: Redo front end stuff
+# add highlighter
 
 
 from __future__ import division
@@ -162,6 +162,7 @@ class StatsSidebar():
     def _onClosed(self):
         # schedule removal for after evt has finished
         QTimer.singleShot(100, self.hide)
+        self.dock.setFloating(False)
         self.killed=True
 
     def show(self):
@@ -174,7 +175,6 @@ class StatsSidebar():
     def hide(self):
         if self.dock:
             self.dock.hide()
-
 
 
 
@@ -295,7 +295,7 @@ please see the browser documentation.""")
 <td><b>EF*Ivl</b></td>
 <td><b>Lapse</b></td>
 <td><b>Reps</b></td>
-<td><b>L/R</b></td>
+<td><b>L/R%</b></td>
 <td><b>Left</b></td>
 </tr><tr>"""
         txt += "<td>%dd</td>"% -overdue
@@ -304,7 +304,7 @@ please see the browser documentation.""")
         txt += "<td>%dd</td>"% int((card.ivl + overdue//2) *ease) #does not acct for modifier
         txt += "<td>%d</td>"% card.lapses
         txt += "<td>%d</td>"% card.reps
-        txt += "<td>%.2f%%</td>"% lrRatio
+        txt += "<td>%.1f</td>"% lrRatio
         txt += "<td>%d</td>"% (card.left%1000)
         txt += "</tr></table></p><hr>"
         return txt
@@ -332,9 +332,13 @@ please see the browser documentation.""")
         elif abs(self.type)==1: #todayStats
             txt = "<center>%s</center>" % cs.todayStats()
         elif abs(self.type)==2: #forecast chart
-            if not card or card.odid: #no filtered decks
-                return
-            if ANKI21:
+            #no filtered decks
+            did=mw.col.decks.selected()
+            dyn=mw.col.decks.get(did)
+            if dyn['dyn'] and self.type>0:
+                txt="No data for filtered decks"
+
+            elif ANKI21:
                 p=mw.mediaServer.getPort()
                 txt = """
 <script src="http://localhost:%d/_anki/jquery.js"></script>
@@ -365,18 +369,22 @@ please see the browser documentation.""")
                 did = card.odid if card.odid else card.did
                 fdid = card.did if card.odid else 0
                 deckName = mw.col.decks.get(did)['name'] #in case of filtered decks
+                sis=[i for i in mw.col.db.list("select id from cards where nid=?", card.nid)]
                 tags=mw.col.getNote(card.nid).stringTags()
+
                 txt += """<table width="100%%"><tr>
 <td><b>Deck ID:</b></td> <td>%d</td></tr><tr>
 <td><b>Fil DID:</b></td> <td>%d</td></tr><tr>
 <td><b>oDeck:</b></td> <td>%s</td></tr><tr>
+<td><b>SiblingCnt:</b></td> <td>%d</td></tr><tr>
+<td><b>Siblings:</b></td> <td>%s</td></tr><tr>
 <td><b>Tags:</b></td> <td>%s</td>
-</tr></table>""" % (did, fdid, deckName, tags)
+</tr></table>""" % (did, fdid, deckName, len(sis), str(sis), tags)
 
         style = self._style()
         self.web.setHtml("""
 <!doctype html><html><head><style>%s</style></head>
-<body>%s</body></html>""" % (style, txt))
+<body class="night_mode">%s</body></html>""" % (style, txt))
 
 
 
@@ -507,7 +515,6 @@ class WarriorMode:
     geometry = None
     state = None
     dualMon=False
-    # shown = False
     docks = []
 
 
@@ -529,22 +536,25 @@ class WarriorMode:
         act.triggered.connect(self.reset)
         menu.addAction(act)
 
-        act=QAction("WM: Dual Monitors", mw)
-        act.setCheckable(True)
-        act.triggered.connect(self.dualMonSetup)
-        menu.addAction(act)
+        self.wmDMChkBox=QAction("WM: Dual Monitors", mw)
+        self.wmDMChkBox.setCheckable(True)
+        self.wmDMChkBox.triggered.connect(self.dualMonSetup)
+        menu.addAction(self.wmDMChkBox)
 
         act=QAction("WM: Freeze CCard View", mw)
         act.setCheckable(True)
         act.triggered.connect(self.freezeUpdates)
         menu.addAction(act)
 
-        act=QAction("Warrior Mode", mw)
-        act.setCheckable(True)
-        act.setShortcut(QKeySequence(HOTKEY))
-        act.triggered.connect(self.toggle)
+        act=QAction("WM: Force Refresh", mw)
+        act.triggered.connect(lambda:self.refresh(night_mode_state))
         menu.addAction(act)
-        self.action=act
+
+        self.wmChkBox=QAction("Warrior Mode", mw)
+        self.wmChkBox.setCheckable(True)
+        self.wmChkBox.setShortcut(QKeySequence(HOTKEY))
+        self.wmChkBox.triggered.connect(self.toggle)
+        menu.addAction(self.wmChkBox)
 
         addHook('profileLoaded', self.onProfileLoaded)
         addHook('unloadProfile', self.onUnloadProfile)
@@ -557,23 +567,22 @@ class WarriorMode:
             mw.restoreState(self.state)
         if mw.pm.profile.get(self.key+"Geom"):
             self.geometry=mw.pm.profile[self.key+"Geom"]
-            mw.restoreGeometry(self.geometry)
-
+            mw.restoreState(self.geometry)
 
     def onUnloadProfile(self):
         if self.state:
-            self.on(); #fix saving positions
             mw.pm.profile[self.key+"State"]=self.state
             mw.pm.profile[self.key+"Geom"]=self.geometry
 
 
-    def refresh(self, state):
+    def refresh(self, nm_state):
         global night_mode_state
-        night_mode_state=state
+        night_mode_state=nm_state
         for d in self.docks:
             d._update()
 
-    def freezeUpdates(self): #to compare b4/after changes
+    def freezeUpdates(self):
+        "use to compare b4/after changes between panels"
         global freezeMode
         if freezeMode:
             freezeMode=False
@@ -582,21 +591,26 @@ class WarriorMode:
 
     def reset(self):
         self.state=self.geometry=None
-        self.action.setChecked(True)
         for d in self.docks:
+            d.dock.setFloating(False)
+            d.dock.setVisible(True)
+            mw.removeDockWidget(d.dock)
+            d.dock=d.web=None
             d.killed=False
-            d.hide()
             d.show()
+        self.wmChkBox.setChecked(True)
 
     def toggle(self):
         if not self.docks: self.setup()
 
         shown=False; allKilled=True
         for d in self.docks:
-            if d.dock and d.dock.isVisible(): shown=True; break;
-            if not d.killed: allKilled=False;
+            if d.dock and d.dock.isVisible():
+                shown=True
+            if not d.killed:
+                allKilled=False
 
-        if shown: #OFF
+        if shown:
             self.off()
         elif allKilled:
             self.reset()
@@ -607,13 +621,16 @@ class WarriorMode:
         self.state=mw.saveState()
         self.geometry=mw.saveGeometry()
         for d in self.docks: d.hide()
+        self.wmChkBox.setChecked(False)
 
     def on(self):
         for d in self.docks: d.show()
         if self.state: mw.restoreState(self.state)
         if self.geometry: mw.restoreGeometry(self.geometry)
+        self.wmChkBox.setChecked(True)
 
     def dualMonSetup(self):
+        self.wmDMChkBox.setCheckable(True)
         if self.dualMon: return
         self.dualMon=True
         if not self.docks: self.setup()
